@@ -231,7 +231,10 @@ export default function Dashboard() {
                     </div>
                     <p className="text-sm text-gray-700 mb-2">From: <span className="font-medium">{email.sender}</span></p>
                     <div className="text-sm text-gray-600 bg-gray-50 p-2 rounded max-h-24 overflow-y-auto">
-                      {email.snippet || (email.body && email.body.substring(0, 150)) || 'No preview available'}
+                      {email.snippet || 
+                       (typeof email.body === 'string' && email.body.substring(0, 150)) ||
+                       (email.body && typeof email.body.text === 'string' && email.body.text.substring(0, 150)) ||
+                       'No preview available'}
                       {email.snippet && email.snippet.length > 150 ? '...' : ''}
                     </div>
                   </div>

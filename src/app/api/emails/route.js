@@ -6,102 +6,7 @@ import { NextResponse } from "next/server";
 import { authOptions } from "../auth/[...nextauth]/route";
 import { v4 as uuidv4 } from 'uuid';
 
-/**
- * Generate mock email data for development and testing
- * @param {string} userId - User ID to associate with mock emails
- * @returns {Array} - Array of mock email objects
- */
-function generateMockEmails(userId) {
-  const mockEmails = [
-    {
-      id: uuidv4(),
-      messageId: `mock-${uuidv4()}`,
-      threadId: `thread-${uuidv4()}`,
-      userId: userId,
-      subject: 'Welcome to BidVault',
-      sender: 'BidVault Team <team@bidvault.com>',
-      recipients: ['you@example.com'],
-      body: 'Thank you for using BidVault! This is a mock email for development purposes.',
-      bodyHtml: '<h3>Welcome to BidVault</h3><p>Thank you for using BidVault! This is a mock email for development purposes.</p>',
-      snippet: 'Thank you for using BidVault! This is a mock email for development purposes.',
-      receivedAt: new Date(),
-      isRead: false,
-      labels: ['INBOX', 'UNREAD'],
-      createdAt: new Date(),
-      updatedAt: new Date()
-    },
-    {
-      id: uuidv4(),
-      messageId: `mock-${uuidv4()}`,
-      threadId: `thread-${uuidv4()}`,
-      userId: userId,
-      subject: 'Your Account Summary',
-      sender: 'BidVault Notifications <notifications@bidvault.com>',
-      recipients: ['you@example.com'],
-      body: 'Here is your monthly account summary. This is a mock email for development purposes.',
-      bodyHtml: '<h3>Your Account Summary</h3><p>Here is your monthly account summary. This is a mock email for development purposes.</p>',
-      snippet: 'Here is your monthly account summary. This is a mock email for development purposes.',
-      receivedAt: new Date(Date.now() - 86400000), // 1 day ago
-      isRead: false,
-      labels: ['INBOX', 'UNREAD'],
-      createdAt: new Date(Date.now() - 86400000),
-      updatedAt: new Date(Date.now() - 86400000)
-    },
-    {
-      id: uuidv4(),
-      messageId: `mock-${uuidv4()}`,
-      threadId: `thread-${uuidv4()}`,
-      userId: userId,
-      subject: 'New Feature Announcement',
-      sender: 'BidVault Product <product@bidvault.com>',
-      recipients: ['you@example.com'],
-      body: 'We are excited to announce new features coming to BidVault! This is a mock email for development purposes.',
-      bodyHtml: '<h3>New Feature Announcement</h3><p>We are excited to announce new features coming to BidVault! This is a mock email for development purposes.</p>',
-      snippet: 'We are excited to announce new features coming to BidVault! This is a mock email for development purposes.',
-      receivedAt: new Date(Date.now() - 172800000), // 2 days ago
-      isRead: false,
-      labels: ['INBOX', 'UNREAD'],
-      createdAt: new Date(Date.now() - 172800000),
-      updatedAt: new Date(Date.now() - 172800000)
-    },
-    {
-      id: uuidv4(),
-      messageId: `mock-${uuidv4()}`,
-      threadId: `thread-${uuidv4()}`,
-      userId: userId,
-      subject: 'Important Security Update',
-      sender: 'BidVault Security <security@bidvault.com>',
-      recipients: ['you@example.com'],
-      body: 'We have updated our security protocols. This is a mock email for development purposes.',
-      bodyHtml: '<h3>Important Security Update</h3><p>We have updated our security protocols. This is a mock email for development purposes.</p>',
-      snippet: 'We have updated our security protocols. This is a mock email for development purposes.',
-      receivedAt: new Date(Date.now() - 259200000), // 3 days ago
-      isRead: false,
-      labels: ['INBOX', 'UNREAD'],
-      createdAt: new Date(Date.now() - 259200000),
-      updatedAt: new Date(Date.now() - 259200000)
-    },
-    {
-      id: uuidv4(),
-      messageId: `mock-${uuidv4()}`,
-      threadId: `thread-${uuidv4()}`,
-      userId: userId,
-      subject: 'Your Weekly Digest',
-      sender: 'BidVault Digest <digest@bidvault.com>',
-      recipients: ['you@example.com'],
-      body: 'Here is your weekly digest of activities. This is a mock email for development purposes.',
-      bodyHtml: '<h3>Your Weekly Digest</h3><p>Here is your weekly digest of activities. This is a mock email for development purposes.</p>',
-      snippet: 'Here is your weekly digest of activities. This is a mock email for development purposes.',
-      receivedAt: new Date(Date.now() - 345600000), // 4 days ago
-      isRead: false,
-      labels: ['INBOX', 'UNREAD'],
-      createdAt: new Date(Date.now() - 345600000),
-      updatedAt: new Date(Date.now() - 345600000)
-    }
-  ];
-  
-  return mockEmails;
-}
+
 
 // Initialize Prisma client
 const prisma = new PrismaClient();
@@ -216,14 +121,20 @@ function decodeEmailBody(message) {
  */
 async function storeEmailInDatabase(email, userId) {
   try {
-    // Check if email already exists
-    const existingEmail = await prisma.email.findUnique({
-      where: { messageId: email.id }
+    // Check if email already exists for this user
+    const existingEmail = await prisma.email.findFirst({
+      where: {
+        messageId: email.id,
+        userId: userId
+      }
     });
     
     if (existingEmail) {
+      console.log(`Email ${email.id} already exists for user ${userId}, skipping`);
       return existingEmail;
     }
+    
+    console.log(`Storing email: ${email.id} - ${email.subject}`);
     
     // Create new email record
     const storedEmail = await prisma.email.create({
@@ -231,32 +142,35 @@ async function storeEmailInDatabase(email, userId) {
         messageId: email.id,
         threadId: email.threadId,
         userId: userId,
-        subject: email.subject,
-        sender: email.sender,
-        recipients: email.recipients,
-        body: email.body.text,
-        bodyHtml: email.body.html,
-        snippet: email.snippet,
-        receivedAt: email.date,
+        subject: email.subject || 'No Subject',
+        sender: email.sender || 'Unknown Sender',
+        recipients: Array.isArray(email.recipients) ? email.recipients : [],
+        body: email.body?.text || '',
+        bodyHtml: email.body?.html || '',
+        snippet: email.snippet || '',
+        receivedAt: email.date instanceof Date ? email.date : new Date(),
         isRead: false,
-        labels: email.labels || []
+        labels: Array.isArray(email.labels) ? email.labels : []
       }
     });
     
+    console.log(`Successfully stored email ${email.id}`);
     return storedEmail;
   } catch (error) {
-    console.error('Error storing email:', error);
-    throw error;
+    console.error(`Error storing email ${email.id}:`, error.message);
+    // Don't throw the error, just log it and return null
+    // This allows the process to continue even if one email fails
+    return null;
   }
 }
 
 /**
- * Fetch unread emails from Gmail
+ * Fetch emails from Gmail
  * @param {string} userId - User ID
  * @param {Object} account - Account with tokens
  * @returns {Promise<Array>} - Array of processed emails
  */
-export async function fetchUnreadEmails(userId, account) {
+export async function fetchEmails(userId, account) {
   try {
     console.log('Fetching emails with tokens:', {
       access_token_length: account.access_token ? account.access_token.length : 0,
@@ -285,16 +199,37 @@ export async function fetchUnreadEmails(userId, account) {
       
       console.log('Gmail connection successful, email:', profileResponse.data.emailAddress);
       
-      // Search for unread emails
-      console.log('Fetching unread messages...');
-      const res = await gmail.users.messages.list({
-        userId: 'me',
-        q: 'is:unread',
-        maxResults: 10
-      });
+      // Search for all emails in Primary category with pagination
+      console.log('Fetching all messages from Primary category with pagination...');
       
-      messages = res.data.messages || [];
-      console.log(`Found ${messages.length} unread messages`);
+      let allMessages = [];
+      let pageToken = null;
+      const maxEmails = 1000; // Increased limit for API route
+      
+      // Keep fetching pages until we have all messages or reach the maximum
+      do {
+        const res = await gmail.users.messages.list({
+          userId: 'me',
+          labelIds: ['INBOX'], // Fetch only emails with 'inbox' label
+          pageToken: pageToken,
+          maxResults: 100 // Gmail API's maximum per page
+        });
+        
+        const pageMessages = res.data.messages || [];
+        allMessages = [...allMessages, ...pageMessages];
+        pageToken = res.data.nextPageToken;
+        
+        console.log(`Fetched page of ${pageMessages.length} messages. Total so far: ${allMessages.length}`);
+        
+        // Stop if we've reached the maximum number of emails to fetch
+        if (allMessages.length >= maxEmails) {
+          console.log(`Reached maximum of ${maxEmails} messages. Stopping pagination.`);
+          break;
+        }
+      } while (pageToken);
+      
+      messages = allMessages;
+      console.log(`Completed fetching. Found ${messages.length} total messages`);
     } catch (error) {
       console.error('Gmail API error:', error.message);
       
@@ -309,60 +244,109 @@ export async function fetchUnreadEmails(userId, account) {
     }
     
     if (messages.length === 0) {
-      console.log('No unread messages found');
+      console.log('No messages found');
       return [];
     }
     
     try {
-      console.log('Fetching full message details...');
-      // Fetch full message details for each email
-      const fullMessages = await Promise.all(
-        messages.map(async (message) => {
-          const res = await gmail.users.messages.get({
-            userId: 'me',
-            id: message.id,
-            format: 'full'
-          });
-          return res.data;
-        })
-      );
+      console.log('Fetching full message details in batches...');
+      
+      // Process in batches to avoid memory issues with large numbers of emails
+      const batchSize = 25; // Smaller batch size for API route to avoid timeouts
+      let fullMessages = [];
+      
+      for (let i = 0; i < messages.length; i += batchSize) {
+        console.log(`Processing batch ${i/batchSize + 1} of ${Math.ceil(messages.length/batchSize)}`);
+        const batch = messages.slice(i, i + batchSize);
+        
+        const batchResults = await Promise.all(
+          batch.map(async (message) => {
+            try {
+              const res = await gmail.users.messages.get({
+                userId: 'me',
+                id: message.id,
+                format: 'full'
+              });
+              return res.data;
+            } catch (error) {
+              console.error(`Error fetching message ${message.id}:`, error.message);
+              return null;
+            }
+          })
+        );
+        
+        // Filter out any null results from errors
+        fullMessages = [...fullMessages, ...batchResults.filter(msg => msg !== null)];
+      }
       
       console.log(`Successfully fetched ${fullMessages.length} full messages`);
       
-      // Process each email
+      // Process emails in smaller batches to avoid overwhelming the database
       console.log('Processing emails...');
-      const processedEmails = await Promise.all(
-        fullMessages.map(async (message) => {
-          // Parse email metadata
-          const metadata = parseEmailHeaders(message.payload.headers);
-          
-          // Decode email body
-          const body = decodeEmailBody(message);
-          
-          // Create email object
-          const email = {
-            id: message.id,
-            threadId: message.threadId,
-            subject: metadata.subject || 'No Subject',
-            sender: metadata.sender || 'Unknown Sender',
-            recipients: metadata.recipients || [],
-            date: metadata.date || new Date(),
-            snippet: message.snippet || '',
-            body: body,
-            labels: message.labelIds || []
-          };
-          
-          // Store email in database
-          try {
-            await storeEmailInDatabase(email, userId);
-          } catch (dbError) {
-            console.error('Error storing email in database:', dbError);
-            // Continue processing even if database storage fails
-          }
-          
-          return email;
-        })
-      );
+      const dbBatchSize = 10; // Process database operations in smaller batches
+      let processedEmails = [];
+      let successCount = 0;
+      let errorCount = 0;
+      
+      for (let i = 0; i < fullMessages.length; i += dbBatchSize) {
+        console.log(`Processing database batch ${Math.floor(i/dbBatchSize) + 1} of ${Math.ceil(fullMessages.length/dbBatchSize)}`);
+        const batch = fullMessages.slice(i, i + dbBatchSize);
+        
+        // Process each email in the batch
+        const batchResults = await Promise.all(
+          batch.map(async (message) => {
+            try {
+              // Parse email metadata
+              const metadata = parseEmailHeaders(message.payload.headers);
+              
+              // Decode email body
+              const body = decodeEmailBody(message);
+              
+              // Create email object
+              const email = {
+                id: message.id,
+                threadId: message.threadId,
+                subject: metadata.subject || 'No Subject',
+                sender: metadata.sender || 'Unknown Sender',
+                recipients: metadata.recipients || [],
+                date: metadata.date || new Date(),
+                snippet: message.snippet || '',
+                body: body,
+                labels: message.labelIds || []
+              };
+              
+              // Store email in database
+              const storedEmail = await storeEmailInDatabase(email, userId);
+              
+              if (storedEmail) {
+                successCount++;
+                return email;
+              } else {
+                errorCount++;
+                return null;
+              }
+            } catch (error) {
+              console.error(`Error processing message ${message.id}:`, error.message);
+              errorCount++;
+              return null;
+            }
+          })
+        );
+        
+        // Filter out any null results from errors
+        processedEmails = [...processedEmails, ...batchResults.filter(email => email !== null)];
+      }
+      
+      console.log(`Email processing complete. Success: ${successCount}, Errors: ${errorCount}`);
+      console.log(`Total emails processed: ${processedEmails.length}`);
+      
+      // Count how many emails are in the database for this user
+      const totalStoredEmails = await prisma.email.count({
+        where: { userId: userId }
+      });
+      
+      console.log(`Total emails in database for user ${userId}: ${totalStoredEmails}`);
+      
       
       console.log(`Successfully processed ${processedEmails.length} emails`);
       return processedEmails;
@@ -434,12 +418,12 @@ export async function GET() {
       const storedEmails = await prisma.email.findMany({
         where: {
           userId: userId,
-          isRead: false
+          // Removed isRead filter to get all emails
         },
         orderBy: {
           receivedAt: 'desc'
         },
-        take: 10
+        // No limit to get all emails
       });
       
       // If we have recent emails in the database, return them
@@ -450,7 +434,7 @@ export async function GET() {
       
       // Otherwise, fetch new emails from Gmail
       console.log('No stored emails found, fetching from Gmail API');
-      const emails = await fetchUnreadEmails(userId, account);
+      const emails = await fetchEmails(userId, account);
       return NextResponse.json({ emails });
     } catch (error) {
       console.error('Error fetching emails from Gmail:', error);

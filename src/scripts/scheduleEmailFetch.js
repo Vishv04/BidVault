@@ -15,10 +15,10 @@ const prisma = new PrismaClient();
 /**
  * Schedule email fetching for a user
  * @param {string} userId - User ID to fetch emails for
- * @param {string} schedule - Cron schedule expression (default: every 15 minutes)
+ * @param {string} schedule - Cron schedule expression (default: every 1 minute for testing)
  * @returns {Object} - Scheduled task
  */
-function scheduleEmailFetch(userId, schedule = '*/15 * * * *') {
+function scheduleEmailFetch(userId, schedule = '*/1 * * * *') {
   console.log(`Scheduling email fetch for user ${userId} with schedule: ${schedule}`);
   
   // Validate cron schedule
@@ -85,7 +85,7 @@ async function main() {
   try {
     // Get command line arguments
     const userId = process.argv[2];
-    const schedule = process.argv[3] || '*/15 * * * *';
+    const schedule = process.argv[3] || '*/1 * * * *'; // Default to every 1 minute for testing
     
     if (!userId) {
       // Schedule for all users

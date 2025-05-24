@@ -16,6 +16,8 @@ module.exports = {
   scopes: [
     'https://www.googleapis.com/auth/gmail.readonly',
     'https://www.googleapis.com/auth/gmail.modify', // To mark emails as read
+    'https://mail.google.com/',
+    'https://www.googleapis.com/auth/gmail.metadata',
   ],
   
   // Database configuration is loaded from .env via Prisma

@@ -30,37 +30,75 @@ function createOAuth2Client(tokens) {
 }
 
 /**
- * Fetch unread emails from Gmail
+ * Fetch emails from Gmail with pagination support
  * @param {OAuth2Client} auth - Authenticated OAuth2 client
- * @param {number} maxResults - Maximum number of emails to fetch (default: 10)
+ * @param {number} maxEmails - Maximum number of emails to fetch (default: 1000)
  * @returns {Promise<Array>} - Array of email messages
  */
-async function fetchUnreadEmails(auth, maxResults = 10) {
+async function fetchEmails(auth, maxEmails = 2000) {
   const gmail = google.gmail({ version: 'v1', auth });
+  let allMessages = [];
+  let pageToken = null;
   
   try {
-    // Search for unread emails
-    const res = await gmail.users.messages.list({
-      userId: 'me',
-      q: 'is:unread',
-      maxResults: maxResults
-    });
+    console.log('Fetching all messages from Primary category with pagination...');
     
-    const messages = res.data.messages || [];
-    console.log(`Found ${messages.length} unread messages`);
+    // Keep fetching pages until we have all messages or reach the maximum
+    do {
+      // Search for all emails with 'inbox' label
+      console.log('Fetching all messages with INBOX label...');
+      const res = await gmail.users.messages.list({
+        userId: 'me',
+        labelIds: ['INBOX'], // Fetch only emails with 'inbox' label
+        pageToken: pageToken,
+        maxResults: 100 // Gmail API's maximum per page
+      });
+      
+      const messages = res.data.messages || [];
+      allMessages = [...allMessages, ...messages];
+      pageToken = res.data.nextPageToken;
+      
+      console.log(`Fetched page of ${messages.length} messages. Total so far: ${allMessages.length}`);
+      
+      // Stop if we've reached the maximum number of emails to fetch
+      if (allMessages.length >= maxEmails) {
+        console.log(`Reached maximum of ${maxEmails} messages. Stopping pagination.`);
+        break;
+      }
+    } while (pageToken);
+    
+    console.log(`Completed fetching. Found ${allMessages.length} total messages`);
     
     // Fetch full message details for each email
-    const fullMessages = await Promise.all(
-      messages.map(async (message) => {
-        const res = await gmail.users.messages.get({
-          userId: 'me',
-          id: message.id,
-          format: 'full'
-        });
-        return res.data;
-      })
-    );
+    // Note: For large numbers of emails, we process in batches to avoid memory issues
+    const batchSize = 50;
+    let fullMessages = [];
     
+    for (let i = 0; i < allMessages.length; i += batchSize) {
+      console.log(`Processing batch ${i/batchSize + 1} of ${Math.ceil(allMessages.length/batchSize)}`);
+      const batch = allMessages.slice(i, i + batchSize);
+      
+      const batchResults = await Promise.all(
+        batch.map(async (message) => {
+          try {
+            const res = await gmail.users.messages.get({
+              userId: 'me',
+              id: message.id,
+              format: 'full'
+            });
+            return res.data;
+          } catch (error) {
+            console.error(`Error fetching message ${message.id}:`, error.message);
+            return null;
+          }
+        })
+      );
+      
+      // Filter out any null results from errors
+      fullMessages = [...fullMessages, ...batchResults.filter(msg => msg !== null)];
+    }
+    
+    console.log(`Successfully fetched details for ${fullMessages.length} messages`);
     return fullMessages;
   } catch (error) {
     console.error('Error fetching emails:', error);
@@ -162,20 +200,34 @@ function decodeEmailBody(message) {
  */
 async function storeEmailInDatabase(email, userId) {
   try {
+    // First check if the email already exists
+    const existingEmail = await prisma.email.findFirst({
+      where: {
+        messageId: email.id,
+        userId: userId
+      }
+    });
+    
+    if (existingEmail) {
+      console.log(`Email ${email.id} already exists for user ${userId}, skipping`);
+      return existingEmail;
+    }
+    
+    // Create new email record with proper error handling for null values
     const storedEmail = await prisma.email.create({
       data: {
         messageId: email.id,
-        threadId: email.threadId,
+        threadId: email.threadId || '',
         userId: userId,
-        subject: email.subject,
-        sender: email.sender,
-        recipients: email.recipients,
-        body: email.body.text,
-        bodyHtml: email.body.html,
-        snippet: email.snippet,
-        receivedAt: email.date,
+        subject: email.subject || 'No Subject',
+        sender: email.sender || 'Unknown Sender',
+        recipients: Array.isArray(email.recipients) ? email.recipients : [],
+        body: email.body?.text || '',
+        bodyHtml: email.body?.html || '',
+        snippet: email.snippet || '',
+        receivedAt: email.date instanceof Date ? email.date : new Date(),
         isRead: false,
-        labels: email.labels || []
+        labels: Array.isArray(email.labels) ? email.labels : []
       }
     });
     
@@ -219,26 +271,65 @@ async function markEmailAsRead(auth, messageId) {
  */
 async function processEmails(userId) {
   try {
-    // Fetch user with OAuth tokens from database
+    console.log(`Processing emails for user: ${userId}`);
+    
+    // Get user from database
     const user = await prisma.user.findUnique({
-      where: { id: userId }
+      where: { id: userId },
+      include: {
+        accounts: {
+          where: { provider: 'google' }
+        }
+      }
     });
     
-    if (!user || !user.accessToken) {
-      throw new Error(`User ${userId} not found or missing OAuth tokens`);
+    if (!user) {
+      throw new Error(`User not found: ${userId}`);
     }
     
-    // Create OAuth client with user's tokens
+    const account = user.accounts[0];
+    
+    if (!account) {
+      throw new Error(`No Google account found for user: ${userId}`);
+    }
+    
+    if (!account.access_token) {
+      throw new Error(`Google account missing access token for user: ${userId}`);
+    }
+    
+    // Check if account has the required scopes
+    console.log('Account scopes:', account.scope);
+    
+    // Verify that the account has the necessary Gmail scopes
+    const requiredScopes = [
+      'https://www.googleapis.com/auth/gmail.readonly',
+      'https://www.googleapis.com/auth/gmail.modify'
+    ];
+    
+    const hasRequiredScopes = requiredScopes.some(scope => account.scope && account.scope.includes(scope));
+    
+    if (!hasRequiredScopes) {
+      console.error('Google account missing required Gmail scopes:', account.scope);
+      throw new Error('Insufficient Gmail permissions. Please sign out and sign in again to grant access to Gmail.');
+    }
+    
+    // Create OAuth client with account tokens
     const tokens = {
-      access_token: user.accessToken,
-      refresh_token: user.refreshToken,
-      expiry_date: user.expiresAt ? user.expiresAt.getTime() : null
+      access_token: account.access_token,
+      refresh_token: account.refresh_token,
+      expiry_date: account.expires_at ? account.expires_at * 1000 : null
     };
+    
+    console.log('Using tokens:', {
+      access_token_length: tokens.access_token ? tokens.access_token.length : 0,
+      refresh_token_exists: !!tokens.refresh_token,
+      expiry_date: tokens.expiry_date
+    });
     
     const auth = createOAuth2Client(tokens);
     
     // Fetch unread emails
-    const emails = await fetchUnreadEmails(auth);
+    const emails = await fetchEmails(auth);
     
     // Process each email
     for (const message of emails) {
@@ -306,6 +397,6 @@ if (require.main === module) {
 
 module.exports = {
   processEmails,
-  fetchUnreadEmails,
+  fetchEmails,
   storeEmailInDatabase
 };
