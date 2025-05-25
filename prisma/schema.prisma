@@ -55,6 +55,7 @@ model Email {
   subject     String?
   sender      String
   recipients  String[]     // Array of recipient email addresses
+  ccRecipients String[]    // Array of CC recipient email addresses
   body        String?      @db.Text
   bodyHtml    String?      @db.Text
   snippet     String?      @db.Text

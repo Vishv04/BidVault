@@ -206,7 +206,7 @@ function parseEmailHeaders(headers) {
         const ccRecipients = header.value
           .split(',')
           .map(email => email.trim());
-        metadata.recipients = [...metadata.recipients, ...ccRecipients];
+        metadata.recipients = [...metadata.recipients];
         break;
       case 'date':
         metadata.date = new Date(header.value);
@@ -560,7 +560,7 @@ async function processEmails(userId) {
     }
     
     // Check if account has the required scopes
-    console.log('Account scopes:', account.scope);
+    // console.log('Account scopes:', account.scope);
     
     // Verify that the account has the necessary Gmail scopes
     const requiredScopes = [
@@ -591,7 +591,7 @@ async function processEmails(userId) {
     const auth = createOAuth2Client(tokens);
     
     // Fetch emails since last sync timestamp
-    console.log(`Fetching emails for user ${userId} since last sync...`);
+    // console.log(`Fetching emails for user ${userId} since last sync...`);
     const messages = await fetchEmails(auth, userId);
     console.log(`Found ${messages.length} new emails since last sync`);
     

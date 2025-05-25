@@ -37,6 +37,7 @@ function parseEmailHeaders(headers) {
     subject: '',
     sender: '',
     recipients: [],
+    ccRecipients: [], // Added separate field for CC recipients
     date: null
   };
   
@@ -54,10 +55,18 @@ function parseEmailHeaders(headers) {
           .map(email => email.trim());
         break;
       case 'cc':
-        const ccRecipients = header.value
-          .split(',')
-          .map(email => email.trim());
-        metadata.recipients = [...metadata.recipients, ...ccRecipients];
+        if (header.value && header.value.trim()) {
+          metadata.ccRecipients = header.value
+            .split(',')
+            .map(email => email.trim())
+            .filter(email => email); // Filter out empty strings
+          console.log('Found CC header with value:', header.value);
+          console.log('Parsed CC recipients:', metadata.ccRecipients);
+        } else {
+          console.log('Found empty CC header');
+          metadata.ccRecipients = [];
+        }
+        // Don't merge with recipients anymore as we want to keep them separate
         break;
       case 'date':
         metadata.date = new Date(header.value);
@@ -320,7 +329,8 @@ async function storeEmailInDatabase(email, userId, auth) {
         subject: email.subject || 'No Subject',
         sender: email.sender || 'Unknown Sender',
         recipients: email.recipients || [],
-        body: email.body.text || null,
+        ccRecipients: email.ccRecipients || [], // Store CC recipients separately
+        body: email.body.text || null, // Store full email content without limiting
         bodyHtml: email.body.html || null,
         snippet: email.snippet || '',
         receivedAt: email.date || new Date(),
@@ -520,6 +530,13 @@ export async function fetchEmails(userId, account) {
               // Parse email metadata
               const metadata = parseEmailHeaders(message.payload.headers);
               
+              // Debug log for CC recipients
+              if (metadata.ccRecipients && metadata.ccRecipients.length > 0) {
+                console.log(`Email ${message.id} has CC recipients:`, metadata.ccRecipients);
+              } else {
+                console.log(`Email ${message.id} has no CC recipients`);
+              }
+              
               // Decode email body
               const body = decodeEmailBody(message);
               
@@ -530,6 +547,7 @@ export async function fetchEmails(userId, account) {
                 subject: metadata.subject || 'No Subject',
                 sender: metadata.sender || 'Unknown Sender',
                 recipients: metadata.recipients || [],
+                ccRecipients: metadata.ccRecipients || [], // Add CC recipients
                 date: metadata.date || new Date(),
                 snippet: message.snippet || '',
                 body: body,
@@ -622,7 +640,7 @@ export async function GET() {
     }
     
     // Log the scopes for debugging
-    console.log('Account scopes:', account.scope);
+    // console.log('Account scopes:', account.scope);
     
     // Check if the account has Gmail scopes
     const hasGmailScopes = account.scope && (
