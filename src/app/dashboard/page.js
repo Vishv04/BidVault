@@ -4,36 +4,66 @@ import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import Image from "next/image";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
+import Link from "next/link";
 
 export default function Dashboard() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [visitCount, setVisitCount] = useState(1);
   const [emails, setEmails] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [needsReauthentication, setNeedsReauthentication] = useState(false);
+  const [lastEmailSync, setLastEmailSync] = useState(null);
+  const [stats, setStats] = useState({
+    emailCount: 0,
+    attachmentCount: 0,
+    lastSyncTime: null
+  });
 
   useEffect(() => {
     if (status === "unauthenticated") {
       router.push("/");
     }
   }, [status, router]);
-
-  // Set visit count from session
-  useEffect(() => {
-    if (session?.user?.visitCount) {
-      setVisitCount(session.user.visitCount);
-    }
-  }, [session]);
   
-  // Fetch unread emails when session is available
+  // Auto-fetch emails when session is available
   useEffect(() => {
     if (session?.user?.id) {
       fetchEmails();
+      
+      // Set up auto-refresh every 5 minutes
+      const refreshInterval = setInterval(fetchEmails, 5 * 60 * 1000);
+      
+      return () => clearInterval(refreshInterval);
     }
   }, [session]);
+  
+  // The lastEmailSync state is now declared at the top of the component
+
+  // Calculate stats whenever emails change
+  useEffect(() => {
+    if (emails.length > 0) {
+      // Count total attachments
+      let attachmentCount = 0;
+      
+      // Find emails with attachments
+      emails.forEach(email => {
+        // Count both attachments and attachmentLinks
+        if (email.attachments && email.attachments.length > 0) {
+          attachmentCount += email.attachments.length;
+        } else if (email.attachmentLinks && email.attachmentLinks.length > 0) {
+          attachmentCount += email.attachmentLinks.length;
+        }
+      });
+      
+      setStats({
+        emailCount: emails.length,
+        attachmentCount,
+        lastSyncTime: lastEmailSync // Use the lastEmailSync from the API
+      });
+    }
+  }, [emails, lastEmailSync]);
   
   // Function to fetch emails from our API
   const fetchEmails = async () => {
@@ -61,7 +91,54 @@ export default function Dashboard() {
         }
       }
       
-      setEmails(data.emails || []);
+      // Extract the lastEmailSync timestamp from the API response
+      if (data.lastEmailSync) {
+        setLastEmailSync(new Date(data.lastEmailSync));
+      }
+      
+      // Sort emails by time (most recent first)
+      const sortedEmails = (data.emails || []).sort((a, b) => {
+        return new Date(b.receivedAt) - new Date(a.receivedAt);
+      });
+      
+      // Group emails by thread
+      const threadMap = {};
+      sortedEmails.forEach(email => {
+        if (!threadMap[email.threadId]) {
+          threadMap[email.threadId] = [];
+        }
+        threadMap[email.threadId].push(email);
+      });
+      
+      // Sort emails within each thread by date
+      Object.values(threadMap).forEach(thread => {
+        thread.sort((a, b) => new Date(a.receivedAt) - new Date(b.receivedAt));
+      });
+      
+      // Convert to array of threads
+      const threads = Object.values(threadMap);
+      
+      // Sort threads by most recent message in thread
+      threads.sort((a, b) => {
+        const latestA = a[a.length - 1];
+        const latestB = b[b.length - 1];
+        return new Date(latestB.receivedAt) - new Date(latestA.receivedAt);
+      });
+      
+      // Flatten back to array of emails with thread info
+      const processedEmails = [];
+      threads.forEach(thread => {
+        thread.forEach((email, index) => {
+          processedEmails.push({
+            ...email,
+            isThreadStart: index === 0,
+            isThreadEnd: index === thread.length - 1,
+            threadSize: thread.length
+          });
+        });
+      });
+      
+      setEmails(processedEmails);
     } catch (err) {
       console.error('Error fetching emails:', err);
       setError(err.message);
@@ -79,107 +156,82 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen p-8 bg-white">
-      <div className="max-w-4xl mx-auto">
-        <div className="bg-white text-black shadow-lg rounded-lg p-6 mb-6">
-          <div className="flex items-center justify-between mb-6">
-            <h1 className="text-2xl font-bold">Dashboard</h1>
-            <button
-              onClick={() => signOut({ callbackUrl: '/' })}
-              className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md transition-colors"
-            >
-              Sign Out
-            </button>
+    <div className="min-h-screen bg-gray-50">
+      {/* Navbar */}
+      <nav className="bg-white shadow-md py-4 px-6">
+        <div className="max-w-[80%] mx-auto flex items-center justify-between">
+          <div className="flex items-center">
+            <h1 className="text-2xl font-bold text-blue-600">BidVault</h1>
           </div>
           
           {session?.user && (
-            <div className="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg">
-              {session.user.image && (
-                <Image
-                  src={session.user.image}
-                  alt="Profile"
-                  width={60}
-                  height={60}
-                  className="rounded-full"
-                />
-              )}
-              <div className="flex-grow">
-                <h2 className="text-xl font-semibold">{session.user.name}</h2>
-                <p className="text-gray-600">{session.user.email}</p>
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center">
+                {session.user.image && (
+                  <Image
+                    src={session.user.image}
+                    alt="Profile"
+                    width={36}
+                    height={36}
+                    className="rounded-full mr-2"
+                  />
+                )}
+                <span className="font-medium text-black">{session.user.name}</span>
               </div>
-              <div className="bg-blue-100 text-blue-800 px-4 py-2 rounded-full">
-                <p className="font-medium">Visit count: {visitCount}</p>
-              </div>
+              <button
+                onClick={() => signOut({ callbackUrl: '/' })}
+                className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm transition-colors"
+              >
+                Logout
+              </button>
             </div>
           )}
         </div>
-        
-        <div className="bg-white text-black shadow-lg rounded-lg p-6">
-          <h2 className="text-xl font-semibold mb-4">Welcome to Your Dashboard</h2>
-          <p className="text-gray-600 mb-4">
-            You have successfully logged in with Google. This is your protected dashboard page.
-          </p>
-          
-          <div className="bg-gray-50 p-4 rounded-lg mb-6">
-            <h3 className="text-lg font-medium mb-2">Your Account Information</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="bg-white p-3 rounded border border-gray-200">
-                <p className="text-sm text-gray-500">User ID</p>
-                <p className="font-mono text-xs truncate">{session?.user?.id || 'Not available'}</p>
-              </div>
-              <div className="bg-white p-3 rounded border border-gray-200">
-                <p className="text-sm text-gray-500">Visit Count</p>
-                <p>{visitCount}</p>
-              </div>
-              <div className="bg-white p-3 rounded border border-gray-200">
-                <p className="text-sm text-gray-500">Account Type</p>
-                <p className="capitalize">{session?.user?.role || 'user'}</p>
-              </div>
-              <div className="bg-white p-3 rounded border border-gray-200">
-                <p className="text-sm text-gray-500">Authentication Provider</p>
-                <p>Google</p>
-              </div>
+      </nav>
+      
+      <div className="max-w-6xl mx-auto p-6">
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div className="bg-white rounded-lg shadow p-6">
+            <h3 className="text-black text-sm uppercase mb-2">Total Emails</h3>
+            <div className="flex items-center">
+              <span className="text-3xl text-black font-bold">{stats.emailCount}</span>
+              <svg className="w-6 h-6 ml-2 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
             </div>
           </div>
           
-          {/* Unread Emails Section */}
-          <div className="bg-gray-50 p-4 rounded-lg">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center">
-                <h3 className="text-lg font-medium">Unread Emails</h3>
-              </div>
-              <button 
-                onClick={fetchEmails}
-                className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded-md text-sm transition-colors flex items-center"
-                disabled={loading}
-              >
-                {loading ? (
-                  <>
-                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Refreshing...
-                  </>
-                ) : 'Refresh'}
-              </button>
+          <div className="bg-white rounded-lg shadow p-6">
+            <h3 className="text-black text-sm uppercase mb-2">Attachments</h3>
+            <div className="flex items-center">
+              <span className="text-3xl text-black font-bold">{stats.attachmentCount}</span>
+              <svg className="w-6 h-6 ml-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+              </svg>
             </div>
-            
-            {/* Google Cloud verification notice */}
-            <div className="bg-amber-50 border border-amber-200 p-4 rounded-md mb-4">
-              <h4 className="font-medium text-amber-800 mb-2">⚠️ Development Mode</h4>
-              <p className="text-sm text-amber-700 mb-2">
-                Gmail integration is currently in development mode. To access Gmail data, you need to:
-              </p>
-              <ol className="list-decimal list-inside text-sm text-amber-700 space-y-1 mb-2">
-                <li>Add your email as a test user in Google Cloud Console</li>
-                <li>Configure the OAuth consent screen</li>
-                <li>Sign out and sign back in to grant Gmail permissions</li>
-              </ol>
-              <p className="text-xs text-amber-600">
-                For production use, the app needs to complete Google's verification process.
-              </p>
+          </div>
+          
+          <div className="bg-white rounded-lg shadow p-6">
+            <h3 className="text-black text-sm uppercase mb-2">Last Synced</h3>
+            <div className="flex items-center">
+              <span className="text-lg text-black font-medium">
+                {stats.lastSyncTime ? formatDistanceToNow(new Date(stats.lastSyncTime), { addSuffix: true }) : 'Never'}
+              </span>
+              <svg className="w-5 h-5 ml-2 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
             </div>
+          </div>
+        </div>
+        
+        {/* Emails Section */}
+        <div className="bg-white rounded-lg shadow overflow-hidden">
+          <div className="border-b border-gray-200 px-6 py-4">
+            <h2 className="text-xl text-black font-semibold">Email Inbox</h2>
+          </div>
+          
+          <div className="p-6">
             
             {error && (
               <div className="bg-red-50 text-red-700 p-3 rounded-md mb-4">
@@ -211,34 +263,160 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <p className="text-gray-600 mt-4 font-medium">Loading emails...</p>
-                  <p className="text-gray-400 text-sm mt-1">Fetching your latest unread messages</p>
+                  <p className="text-gray-400 text-sm mt-1">Fetching your latest messages</p>
                 </div>
               </div>
             ) : emails.length === 0 ? (
               <div className="text-center py-8 bg-white rounded-md border border-gray-200">
-                <p className="text-gray-500">No unread emails found</p>
-                <p className="text-xs text-gray-400 mt-1">You have no unread emails in your inbox.</p>
+                <p className="text-gray-500">No emails found</p>
+                <p className="text-xs text-gray-400 mt-1">Your inbox is empty.</p>
               </div>
             ) : (
-              <div className="space-y-3">
-                {emails.map((email) => (
-                  <div key={email.id || email.messageId} className="bg-white p-4 rounded-md border border-gray-200 hover:shadow-md transition-shadow">
-                    <div className="flex justify-between items-start mb-2">
-                      <h4 className="font-medium text-lg truncate">{email.subject}</h4>
-                      <span className="text-xs text-gray-500">
-                        {email.receivedAt ? format(new Date(email.receivedAt), 'MMM d, yyyy h:mm a') : 'Unknown date'}
-                      </span>
+              <div className="space-y-4">
+                {/* Group emails by thread and only show the first email of each thread */}
+                {emails.reduce((threads, email) => {
+                  if (email.isThreadStart) {
+                    // Find all emails in this thread
+                    const threadEmails = emails.filter(e => e.threadId === email.threadId);
+                    threads.push({ mainEmail: email, thread: threadEmails });
+                  }
+                  return threads;
+                }, []).map((thread, threadIndex) => {
+                  const { mainEmail, thread: threadEmails } = thread;
+                  const hasAttachments = threadEmails.some(email => 
+                    (email.attachments && email.attachments.length > 0) || 
+                    (email.attachmentLinks && email.attachmentLinks.length > 0)
+                  );
+                  
+                  return (
+                    <div key={mainEmail.id || mainEmail.messageId} className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+                      {/* Main email header */}
+                      <div className="p-4">
+                        <div className="flex justify-between items-start mb-3">
+                          <h4 className="font-semibold text-lg text-gray-800">{mainEmail.subject}</h4>
+                          <span className="text-xs text-gray-500">
+                            {mainEmail.receivedAt ? format(new Date(mainEmail.receivedAt), 'MMM d, yyyy h:mm a') : 'Unknown date'}
+                          </span>
+                        </div>
+                        
+                        <div className="flex items-center mb-3">
+                          <span className="text-sm text-gray-700">From: <span className="font-medium">{mainEmail.sender}</span></span>
+                          
+                          {threadEmails.length > 1 && (
+                            <span className="ml-3 bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">
+                              {threadEmails.length} emails in thread
+                            </span>
+                          )}
+                          
+                          {hasAttachments && (
+                            <span className="ml-2 bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full flex items-center">
+                              <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                              </svg>
+                              Attachments
+                            </span>
+                          )}
+                        </div>
+                        
+                        {/* Email content */}
+                        <div className="text-sm text-gray-700 bg-gray-50 p-3 rounded mb-3">
+                          {mainEmail.snippet || 
+                           (typeof mainEmail.body === 'string' && mainEmail.body.substring(0, 200)) ||
+                           (mainEmail.body && typeof mainEmail.body.text === 'string' && mainEmail.body.text.substring(0, 200)) ||
+                           'No preview available'}
+                          {mainEmail.snippet && mainEmail.snippet.length > 200 ? '...' : ''}
+                        </div>
+                        
+                        {/* Thread and attachment dropdowns */}
+                        <div className="flex flex-wrap gap-2 mt-3">
+                          {/* Thread dropdown */}
+                          {threadEmails.length > 1 && (
+                            <details className="w-full border border-gray-200 rounded-md overflow-hidden">
+                              <summary className="bg-gray-50 px-4 py-2 cursor-pointer flex items-center text-sm font-medium text-gray-700 hover:bg-gray-100">
+                                <svg className="w-4 h-4 mr-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                </svg>
+                                View Thread ({threadEmails.length} emails)
+                              </summary>
+                              <div className="px-4 py-3 divide-y divide-gray-100">
+                                {threadEmails.slice(1).map((threadEmail, emailIndex) => (
+                                  <div key={threadEmail.id || threadEmail.messageId} className="py-3">
+                                    <div className="flex justify-between items-start mb-2">
+                                      <span className="text-sm font-medium text-gray-700">{threadEmail.sender}</span>
+                                      <span className="text-xs text-gray-500">
+                                        {threadEmail.receivedAt ? format(new Date(threadEmail.receivedAt), 'MMM d, yyyy h:mm a') : 'Unknown date'}
+                                      </span>
+                                    </div>
+                                    <div className="text-sm text-gray-600 bg-gray-50 p-2 rounded">
+                                      {threadEmail.snippet || 
+                                       (typeof threadEmail.body === 'string' && threadEmail.body.substring(0, 150)) ||
+                                       (threadEmail.body && typeof threadEmail.body.text === 'string' && threadEmail.body.text.substring(0, 150)) ||
+                                       'No preview available'}
+                                      {threadEmail.snippet && threadEmail.snippet.length > 150 ? '...' : ''}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </details>
+                          )}
+                          
+                          {/* Attachments dropdown */}
+                          {hasAttachments && (
+                            <details className="w-full border border-gray-200 rounded-md overflow-hidden">
+                              <summary className="bg-gray-50 px-4 py-2 cursor-pointer flex items-center text-sm font-medium text-gray-700 hover:bg-gray-100">
+                                <svg className="w-4 h-4 mr-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                                </svg>
+                                View Attachments
+                              </summary>
+                              <div className="p-3">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                  {threadEmails.map(email => {
+                                    // Display attachments from the Attachment model
+                                    if (email.attachments && email.attachments.length > 0) {
+                                      return email.attachments.map(attachment => (
+                                        <a
+                                          key={attachment.id}
+                                          href={attachment.driveLink}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="flex items-center bg-gray-50 hover:bg-gray-100 rounded px-3 py-2 text-sm border border-gray-200"
+                                        >
+                                          <svg className="w-4 h-4 mr-2 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                                          </svg>
+                                          <span className="truncate">{attachment.fileName}</span>
+                                        </a>
+                                      ));
+                                    }
+                                    // Display links from the attachmentLinks array
+                                    else if (email.attachmentLinks && email.attachmentLinks.length > 0) {
+                                      return email.attachmentLinks.map((link, index) => (
+                                        <a
+                                          key={`${email.id}-link-${index}`}
+                                          href={link}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="flex items-center bg-gray-50 hover:bg-gray-100 rounded px-3 py-2 text-sm border border-gray-200"
+                                        >
+                                          <svg className="w-4 h-4 mr-2 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                                          </svg>
+                                          <span className="truncate text-gray-600">Attachment {index + 1}</span>
+                                        </a>
+                                      ));
+                                    }
+                                    return null;
+                                  })}
+                                </div>
+                              </div>
+                            </details>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <p className="text-sm text-gray-700 mb-2">From: <span className="font-medium">{email.sender}</span></p>
-                    <div className="text-sm text-gray-600 bg-gray-50 p-2 rounded max-h-24 overflow-y-auto">
-                      {email.snippet || 
-                       (typeof email.body === 'string' && email.body.substring(0, 150)) ||
-                       (email.body && typeof email.body.text === 'string' && email.body.text.substring(0, 150)) ||
-                       'No preview available'}
-                      {email.snippet && email.snippet.length > 150 ? '...' : ''}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

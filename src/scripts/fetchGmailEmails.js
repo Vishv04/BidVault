@@ -458,7 +458,7 @@ async function storeEmailInDatabase(email, userId, auth) {
       return existingEmail;
     }
     
-    // Create new email record
+    // Create new email record with empty attachmentLinks array
     const createdEmail = await prisma.email.create({
       data: {
         messageId: email.id,
@@ -472,7 +472,8 @@ async function storeEmailInDatabase(email, userId, auth) {
         snippet: email.snippet || '',
         receivedAt: email.date || new Date(),
         isRead: false,
-        labels: email.labels || []
+        labels: email.labels || [],
+        attachmentLinks: [] // Initialize empty array for attachment links
       }
     });
     
@@ -480,7 +481,17 @@ async function storeEmailInDatabase(email, userId, auth) {
     
     // Process attachments if present
     if (email.attachments && email.attachments.length > 0) {
-      await processAttachments(auth, email.id, email.attachments, createdEmail.id);
+      const storedAttachments = await processAttachments(auth, email.id, email.attachments, createdEmail.id);
+      
+      // Update email with attachment links
+      if (storedAttachments && storedAttachments.length > 0) {
+        const attachmentLinks = storedAttachments.map(att => att.driveLink);
+        await prisma.email.update({
+          where: { id: createdEmail.id },
+          data: { attachmentLinks }
+        });
+        console.log(`Updated email ${email.id} with ${attachmentLinks.length} attachment links`);
+      }
     }
     
     return createdEmail;

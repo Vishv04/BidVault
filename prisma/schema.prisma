@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -20,12 +17,15 @@ model User {
   lastVisit     DateTime  @default(now())
   firstVisit    DateTime  @default(now())
   role          String    @default("user")
-  accounts      Account[]
+  
   // OAuth session data
   accessToken   String?   @db.Text
   refreshToken  String?   @db.Text
   expiresAt     DateTime?
   lastEmailSync DateTime? // Timestamp of last email synchronization
+  
+  // Relations
+  accounts      Account[]
   emails        Email[]   // Relation to emails
 }
 
@@ -35,41 +35,43 @@ model Account {
   provider          String
   providerAccountId String
   type              String  @default("oauth")
-  
-  // Provider specific data
-  refresh_token     String? @db.Text
-  access_token      String? @db.Text
+  refresh_token     String?
+  access_token      String?
   expires_at        Int?
   token_type        String?
   scope             String?
-  id_token          String? @db.Text
+  id_token          String?
   session_state     String?
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
 }
 
 model Email {
-  id          String   @id @default(cuid())
-  messageId   String   @unique
+  id          String       @id @default(cuid())
+  messageId   String       @unique
   threadId    String
   userId      String
   subject     String?
   sender      String
-  recipients  String[]  // Array of recipient email addresses
-  body        String?   @db.Text
-  bodyHtml    String?   @db.Text
-  snippet     String?   @db.Text
+  recipients  String[]     // Array of recipient email addresses
+  body        String?      @db.Text
+  bodyHtml    String?      @db.Text
+  snippet     String?      @db.Text
   receivedAt  DateTime
-  isRead      Boolean   @default(false)
-  labels      String[]  // Array of Gmail labels
-  attachments Attachment[] // Relation to attachments
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  isRead      Boolean      @default(false)
+  labels      String[]     // Array of Gmail labels
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  
+  // Store attachment links directly
+  attachmentLinks String[]  // Array of Google Drive links
+  
+  // Relation to attachments for detailed information
+  attachments Attachment[]
   
   // Relation to user
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Attachment {

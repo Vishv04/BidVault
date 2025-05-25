@@ -311,7 +311,7 @@ async function storeEmailInDatabase(email, userId, auth) {
       return existingEmail;
     }
     
-    // Create new email record
+    // Create new email record with empty attachmentLinks array
     const createdEmail = await prisma.email.create({
       data: {
         messageId: email.id,
@@ -325,7 +325,8 @@ async function storeEmailInDatabase(email, userId, auth) {
         snippet: email.snippet || '',
         receivedAt: email.date || new Date(),
         isRead: false,
-        labels: email.labels || []
+        labels: email.labels || [],
+        attachmentLinks: [] // Initialize empty array for attachment links
       }
     });
     
@@ -333,7 +334,17 @@ async function storeEmailInDatabase(email, userId, auth) {
     
     // Process attachments if present
     if (email.body.attachments && email.body.attachments.length > 0) {
-      await processAttachments(auth, email.id, email.body.attachments, createdEmail.id);
+      const storedAttachments = await processAttachments(auth, email.id, email.body.attachments, createdEmail.id);
+      
+      // Update email with attachment links
+      if (storedAttachments && storedAttachments.length > 0) {
+        const attachmentLinks = storedAttachments.map(att => att.driveLink);
+        await prisma.email.update({
+          where: { id: createdEmail.id },
+          data: { attachmentLinks }
+        });
+        console.log(`Updated email ${email.id} with ${attachmentLinks.length} attachment links`);
+      }
     }
     
     return createdEmail;
@@ -631,6 +642,11 @@ export async function GET() {
     try {
       console.log('Attempting to fetch emails');
       
+      // Get user data including lastEmailSync timestamp
+      const user = await prisma.user.findUnique({
+        where: { id: userId }
+      });
+      
       // Try to get emails from database first
       const storedEmails = await prisma.email.findMany({
         where: {
@@ -640,19 +656,34 @@ export async function GET() {
         orderBy: {
           receivedAt: 'desc'
         },
+        include: {
+          attachments: true // Include attachments for each email
+        },
         // No limit to get all emails
       });
       
       // If we have recent emails in the database, return them
       if (storedEmails.length > 0) {
         console.log(`Returning ${storedEmails.length} stored emails`);
-        return NextResponse.json({ emails: storedEmails });
+        return NextResponse.json({ 
+          emails: storedEmails,
+          lastEmailSync: user?.lastEmailSync || null
+        });
       }
       
       // Otherwise, fetch new emails from Gmail
       console.log('No stored emails found, fetching from Gmail API');
       const emails = await fetchEmails(userId, account);
-      return NextResponse.json({ emails });
+      
+      // Get updated user data after email fetch (which updates lastEmailSync)
+      const updatedUser = await prisma.user.findUnique({
+        where: { id: userId }
+      });
+      
+      return NextResponse.json({ 
+        emails: emails,
+        lastEmailSync: updatedUser?.lastEmailSync || null
+      });
     } catch (error) {
       console.error('Error fetching emails from Gmail:', error);
       
