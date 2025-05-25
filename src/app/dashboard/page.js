@@ -269,34 +269,40 @@ export default function Dashboard() {
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-black text-sm uppercase mb-2">Total Emails</h3>
-            <div className="flex items-center">
-              <span className="text-3xl text-black font-bold">{stats.emailCount}</span>
-              <svg className="w-6 h-6 ml-2 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <div className="flex items-center mb-2">
+              <svg className="w-5 h-5 mr-2 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
               </svg>
+              <h3 className="text-black text-sm uppercase">Total Emails</h3>
+            </div>
+            <div className="flex items-center">
+              <span className="text-3xl text-black font-bold">{stats.emailCount}</span>
             </div>
           </div>
           
           <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-black text-sm uppercase mb-2">Attachments</h3>
-            <div className="flex items-center">
-              <span className="text-3xl text-black font-bold">{stats.attachmentCount}</span>
-              <svg className="w-6 h-6 ml-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <div className="flex items-center mb-2">
+              <svg className="w-5 h-5 mr-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
               </svg>
+              <h3 className="text-black text-sm uppercase">Attachments</h3>
+            </div>
+            <div className="flex items-center">
+              <span className="text-3xl text-black font-bold">{stats.attachmentCount}</span>
             </div>
           </div>
           
           <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-black text-sm uppercase mb-2">Last Synced</h3>
+            <div className="flex items-center mb-2">
+              <svg className="w-5 h-5 mr-2 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <h3 className="text-black text-sm uppercase">Last Synced</h3>
+            </div>
             <div className="flex items-center">
               <span className="text-lg text-black font-medium">
                 {stats.lastSyncTime ? formatDistanceToNow(new Date(stats.lastSyncTime), { addSuffix: true }) : 'Never'}
               </span>
-              <svg className="w-5 h-5 ml-2 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
             </div>
           </div>
         </div>
@@ -455,7 +461,16 @@ export default function Dashboard() {
                             {/* To: recipients */}
                             {mainEmail.recipients && mainEmail.recipients.length > 0 && (
                               <div className="text-sm text-gray-700">
-                                <span className="text-gray-500">To:</span> <span className="font-medium">you</span>
+                                <span className="text-gray-500">To:</span> {
+                                  mainEmail.recipients.length === 1 ? 
+                                    <span className="font-medium">you</span> :
+                                    mainEmail.recipients.map((recipient, index) => (
+                                      <span key={index} className="font-medium">
+                                        {recipient.includes(session?.user?.email) ? 'you' : recipient}
+                                        {index < mainEmail.recipients.length - 1 ? ', ' : ''}
+                                      </span>
+                                    ))
+                                }
                               </div>
                             )}
                             
