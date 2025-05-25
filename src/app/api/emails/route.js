@@ -199,8 +199,38 @@ export async function fetchEmails(userId, account) {
       
       console.log('Gmail connection successful, email:', profileResponse.data.emailAddress);
       
-      // Search for all emails in Primary category with pagination
-      console.log('Fetching all messages from Primary category with pagination...');
+      // Get the last email sync timestamp for the user
+      const user = await prisma.user.findUnique({
+        where: { id: userId }
+      });
+      
+      let fetchAllEmails = false;
+      let queryParams = {};
+      
+      // Check if user exists and has a lastEmailSync timestamp
+      if (user && user.lastEmailSync) {
+        // User exists and has synced before - fetch only new emails
+        const lastSyncTime = user.lastEmailSync;
+        // Convert to Unix timestamp (seconds since epoch)
+        const lastSyncTimestamp = Math.floor(lastSyncTime.getTime() / 1000);
+        console.log(`Found last sync timestamp: ${lastSyncTimestamp} (${lastSyncTime.toISOString()})`);
+        console.log(`Fetching only emails after timestamp: ${lastSyncTimestamp}`);
+        
+        // Set query parameter to fetch emails after the timestamp
+        queryParams = {
+          q: `after:${lastSyncTimestamp}`, // Gmail search query for emails after timestamp
+          labelIds: ['INBOX']
+        };
+      } else {
+        // User is new or has never synced - fetch all emails
+        console.log('New user or no previous sync found. Fetching all emails...');
+        fetchAllEmails = true;
+        
+        // Set query parameter to fetch all inbox emails
+        queryParams = {
+          labelIds: ['INBOX']
+        };
+      }
       
       let allMessages = [];
       let pageToken = null;
@@ -208,9 +238,10 @@ export async function fetchEmails(userId, account) {
       
       // Keep fetching pages until we have all messages or reach the maximum
       do {
+        console.log(`Fetching page of emails with${fetchAllEmails ? ' all' : ' new'} emails...`);
         const res = await gmail.users.messages.list({
           userId: 'me',
-          labelIds: ['INBOX'], // Fetch only emails with 'inbox' label
+          ...queryParams,
           pageToken: pageToken,
           maxResults: 100 // Gmail API's maximum per page
         });
@@ -347,7 +378,14 @@ export async function fetchEmails(userId, account) {
       
       console.log(`Total emails in database for user ${userId}: ${totalStoredEmails}`);
       
+      // Update the last sync timestamp to current time
+      const currentTime = new Date();
+      await prisma.user.update({
+        where: { id: userId },
+        data: { lastEmailSync: currentTime }
+      });
       
+      console.log(`Updated lastEmailSync timestamp to ${currentTime.toISOString()}`);
       console.log(`Successfully processed ${processedEmails.length} emails`);
       return processedEmails;
     } catch (error) {

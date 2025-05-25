@@ -25,6 +25,7 @@ model User {
   accessToken   String?   @db.Text
   refreshToken  String?   @db.Text
   expiresAt     DateTime?
+  lastEmailSync DateTime? // Timestamp of last email synchronization
   emails        Email[]   // Relation to emails
 }
 
