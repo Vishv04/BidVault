@@ -69,98 +69,277 @@ function parseEmailHeaders(headers) {
 }
 
 /**
- * Decode email body (text or HTML)
+ * Decode email body (text or HTML) and extract attachments
  * @param {Object} message - Gmail message object
- * @returns {Object} - Decoded email body (text and HTML)
+ * @returns {Object} - Decoded email body (text and HTML) and attachments
  */
 function decodeEmailBody(message) {
-  const body = {
+  const result = {
     text: null,
-    html: null
+    html: null,
+    attachments: []
   };
   
-  if (!message.payload) return body;
+  if (!message.payload) return result;
   
-  // Check if the message has parts (multipart email)
-  if (message.payload.parts && message.payload.parts.length > 0) {
-    message.payload.parts.forEach(part => {
+  // Function to process parts recursively
+  function processParts(parts) {
+    if (!parts || !Array.isArray(parts)) return;
+    
+    parts.forEach(part => {
+      // Handle text parts
       if (part.mimeType === 'text/plain' && part.body.data) {
-        body.text = Buffer.from(part.body.data, 'base64').toString('utf-8');
+        result.text = Buffer.from(part.body.data, 'base64').toString('utf-8');
       } else if (part.mimeType === 'text/html' && part.body.data) {
-        body.html = Buffer.from(part.body.data, 'base64').toString('utf-8');
-      }
-      
-      // Check for nested multipart content
-      if (part.parts) {
-        part.parts.forEach(nestedPart => {
-          if (nestedPart.mimeType === 'text/plain' && nestedPart.body.data) {
-            body.text = Buffer.from(nestedPart.body.data, 'base64').toString('utf-8');
-          } else if (nestedPart.mimeType === 'text/html' && nestedPart.body.data) {
-            body.html = Buffer.from(nestedPart.body.data, 'base64').toString('utf-8');
-          }
+        result.html = Buffer.from(part.body.data, 'base64').toString('utf-8');
+      } 
+      // Handle attachment parts
+      else if (part.filename && part.filename.length > 0) {
+        // This is an attachment
+        result.attachments.push({
+          filename: part.filename,
+          mimeType: part.mimeType,
+          size: part.body.size || 0,
+          attachmentId: part.body.attachmentId,
+          partId: part.partId || ''
         });
       }
+      
+      // Process nested parts recursively
+      if (part.parts) {
+        processParts(part.parts);
+      }
     });
-  } else if (message.payload.body && message.payload.body.data) {
-    // Handle single part email
+  }
+  
+  // Handle multipart messages
+  if (message.payload.parts && message.payload.parts.length > 0) {
+    processParts(message.payload.parts);
+  } 
+  // Handle single part messages
+  else if (message.payload.body && message.payload.body.data) {
     if (message.payload.mimeType === 'text/plain') {
-      body.text = Buffer.from(message.payload.body.data, 'base64').toString('utf-8');
+      result.text = Buffer.from(message.payload.body.data, 'base64').toString('utf-8');
     } else if (message.payload.mimeType === 'text/html') {
-      body.html = Buffer.from(message.payload.body.data, 'base64').toString('utf-8');
+      result.html = Buffer.from(message.payload.body.data, 'base64').toString('utf-8');
     }
   }
   
-  return body;
+  return result;
+}
+
+/**
+ * Download attachment from Gmail
+ * @param {OAuth2Client} auth - Authenticated OAuth2 client
+ * @param {string} messageId - Gmail message ID
+ * @param {string} attachmentId - Gmail attachment ID
+ * @returns {Promise<Buffer>} - Attachment data as Buffer
+ */
+async function downloadAttachment(auth, messageId, attachmentId) {
+  try {
+    const gmail = google.gmail({ version: 'v1', auth });
+    
+    const response = await gmail.users.messages.attachments.get({
+      userId: 'me',
+      messageId: messageId,
+      id: attachmentId
+    });
+    
+    if (!response.data.data) {
+      throw new Error('No attachment data found');
+    }
+    
+    // Convert base64 data to Buffer
+    return Buffer.from(response.data.data, 'base64');
+  } catch (error) {
+    console.error(`Error downloading attachment ${attachmentId}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Upload file to Google Drive
+ * @param {OAuth2Client} auth - Authenticated OAuth2 client
+ * @param {Buffer} fileData - File data as Buffer
+ * @param {string} fileName - File name
+ * @param {string} mimeType - File MIME type
+ * @returns {Promise<Object>} - Google Drive file object
+ */
+async function uploadToDrive(auth, fileData, fileName, mimeType) {
+  try {
+    const drive = google.drive({ version: 'v3', auth });
+    
+    // Create a folder for email attachments if it doesn't exist
+    let folderId;
+    const folderName = 'BidVault Email Attachments';
+    
+    // Check if folder already exists
+    const folderResponse = await drive.files.list({
+      q: `name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      fields: 'files(id, name)'
+    });
+    
+    if (folderResponse.data.files && folderResponse.data.files.length > 0) {
+      folderId = folderResponse.data.files[0].id;
+      console.log(`Using existing folder: ${folderName} (${folderId})`);
+    } else {
+      // Create a new folder
+      const folderMetadata = {
+        name: folderName,
+        mimeType: 'application/vnd.google-apps.folder'
+      };
+      
+      const folder = await drive.files.create({
+        resource: folderMetadata,
+        fields: 'id'
+      });
+      
+      folderId = folder.data.id;
+      console.log(`Created new folder: ${folderName} (${folderId})`);
+    }
+    
+    // Create a readable stream from the file buffer
+    const { Readable } = require('stream');
+    const bufferStream = new Readable();
+    bufferStream.push(fileData);
+    bufferStream.push(null);
+    
+    // File metadata
+    const fileMetadata = {
+      name: fileName,
+      parents: [folderId]
+    };
+    
+    // Upload file
+    const media = {
+      mimeType: mimeType,
+      body: bufferStream
+    };
+    
+    const file = await drive.files.create({
+      resource: fileMetadata,
+      media: media,
+      fields: 'id, name, webViewLink'
+    });
+    
+    console.log(`Uploaded file to Drive: ${fileName} (${file.data.id})`);
+    return file.data;
+  } catch (error) {
+    console.error(`Error uploading file to Drive: ${fileName}`, error);
+    throw error;
+  }
+}
+
+/**
+ * Process email attachments
+ * @param {OAuth2Client} auth - Authenticated OAuth2 client
+ * @param {string} messageId - Gmail message ID
+ * @param {Array} attachments - Array of attachment metadata
+ * @param {string} emailId - Database email ID
+ * @returns {Promise<Array>} - Array of stored attachment records
+ */
+async function processAttachments(auth, messageId, attachments, emailId) {
+  try {
+    if (!attachments || attachments.length === 0) {
+      return [];
+    }
+    
+    console.log(`Processing ${attachments.length} attachments for email ${messageId}`);
+    
+    const storedAttachments = [];
+    
+    for (const attachment of attachments) {
+      try {
+        if (!attachment.attachmentId) {
+          console.log(`Skipping attachment ${attachment.filename} - no attachmentId`);
+          continue;
+        }
+        
+        // Download attachment from Gmail
+        const fileData = await downloadAttachment(auth, messageId, attachment.attachmentId);
+        
+        // Upload to Google Drive
+        const driveFile = await uploadToDrive(auth, fileData, attachment.filename, attachment.mimeType);
+        
+        // Store attachment metadata in database
+        const storedAttachment = await prisma.attachment.create({
+          data: {
+            emailId: emailId,
+            fileName: attachment.filename,
+            mimeType: attachment.mimeType,
+            fileSize: attachment.size,
+            driveFileId: driveFile.id,
+            driveLink: driveFile.webViewLink
+          }
+        });
+        
+        console.log(`Stored attachment in database: ${attachment.filename}`);
+        storedAttachments.push(storedAttachment);
+      } catch (error) {
+        console.error(`Error processing attachment ${attachment.filename}:`, error);
+      }
+    }
+    
+    return storedAttachments;
+  } catch (error) {
+    console.error(`Error processing attachments for email ${messageId}:`, error);
+    return [];
+  }
 }
 
 /**
  * Store email in PostgreSQL database
  * @param {Object} email - Parsed email object
  * @param {string} userId - User ID to associate with the email
+ * @param {OAuth2Client} auth - Authenticated OAuth2 client for handling attachments
  * @returns {Promise<Object>} - Created email record
  */
-async function storeEmailInDatabase(email, userId) {
+async function storeEmailInDatabase(email, userId, auth) {
   try {
-    // Check if email already exists for this user
-    const existingEmail = await prisma.email.findFirst({
+    // Check if email already exists in database
+    const existingEmail = await prisma.email.findUnique({
       where: {
-        messageId: email.id,
-        userId: userId
+        messageId: email.id
+      },
+      include: {
+        attachments: true
       }
     });
     
     if (existingEmail) {
-      console.log(`Email ${email.id} already exists for user ${userId}, skipping`);
+      console.log(`Email ${email.id} already exists in database, skipping...`);
       return existingEmail;
     }
     
-    console.log(`Storing email: ${email.id} - ${email.subject}`);
-    
     // Create new email record
-    const storedEmail = await prisma.email.create({
+    const createdEmail = await prisma.email.create({
       data: {
         messageId: email.id,
         threadId: email.threadId,
         userId: userId,
         subject: email.subject || 'No Subject',
         sender: email.sender || 'Unknown Sender',
-        recipients: Array.isArray(email.recipients) ? email.recipients : [],
-        body: email.body?.text || '',
-        bodyHtml: email.body?.html || '',
+        recipients: email.recipients || [],
+        body: email.body.text || null,
+        bodyHtml: email.body.html || null,
         snippet: email.snippet || '',
-        receivedAt: email.date instanceof Date ? email.date : new Date(),
+        receivedAt: email.date || new Date(),
         isRead: false,
-        labels: Array.isArray(email.labels) ? email.labels : []
+        labels: email.labels || []
       }
     });
     
-    console.log(`Successfully stored email ${email.id}`);
-    return storedEmail;
+    console.log(`Stored email ${email.id} in database`);
+    
+    // Process attachments if present
+    if (email.body.attachments && email.body.attachments.length > 0) {
+      await processAttachments(auth, email.id, email.body.attachments, createdEmail.id);
+    }
+    
+    return createdEmail;
   } catch (error) {
-    console.error(`Error storing email ${email.id}:`, error.message);
-    // Don't throw the error, just log it and return null
-    // This allows the process to continue even if one email fails
-    return null;
+    console.error(`Error storing email ${email.id} in database:`, error);
+    throw error;
   }
 }
 
@@ -346,8 +525,8 @@ export async function fetchEmails(userId, account) {
                 labels: message.labelIds || []
               };
               
-              // Store email in database
-              const storedEmail = await storeEmailInDatabase(email, userId);
+              // Store email in database with attachment handling
+              const storedEmail = await storeEmailInDatabase(email, userId, auth);
               
               if (storedEmail) {
                 successCount++;

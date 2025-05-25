@@ -64,9 +64,24 @@ model Email {
   receivedAt  DateTime
   isRead      Boolean   @default(false)
   labels      String[]  // Array of Gmail labels
+  attachments Attachment[] // Relation to attachments
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   
   // Relation to user
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Attachment {
+  id          String   @id @default(cuid())
+  emailId     String
+  fileName    String
+  mimeType    String
+  fileSize    Int?
+  driveFileId String   // Google Drive file ID
+  driveLink   String   // Google Drive access link
+  createdAt   DateTime @default(now())
+  
+  // Relation to email
+  email       Email    @relation(fields: [emailId], references: [id], onDelete: Cascade)
 }
