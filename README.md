@@ -35,7 +35,7 @@ BidVault is a Next.js application that integrates with Gmail to fetch, process, 
 *The main dashboard showing the email list and statistics.*
 
 ### Dashboard View
-![Dashboard View](https://github.com/user-attachments/assets/39e6b222-a676-4ce9-8bde-db128ac0b1e4)
+![Dashboard View](![image](https://github.com/user-attachments/assets/a6174768-3a7d-4d68-bfec-0edd8f4ca450))
 *Detailed view of an email with attachments and formatting preserved.*
 
 ### Attachments and CC Recipients
