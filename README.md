@@ -52,6 +52,10 @@ Watch a complete demonstration of the BidVault email processing system:
 
 [▶️ BidVault Email System Demo](https://drive.google.com/file/d/1Cc30Cv2TOAMsIIpQYSNKQOX6ppRtbP0j/view?usp=drive_link)
 
+### Flow chart
+![Untitled Diagram drawio](https://github.com/user-attachments/assets/290005e7-56c3-4863-a3c1-04392c5adcef)
+
+
 ## Architecture
 
 The application follows a modern architecture with:
