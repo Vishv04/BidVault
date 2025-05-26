@@ -5,15 +5,16 @@ This document provides detailed information about the email processing system in
 ## Table of Contents
 
 1. [Project Overview](#project-overview)
-2. [Architecture](#architecture)
-3. [Key Components](#key-components)
-4. [Gmail API Integration](#gmail-api-integration)
-5. [Database Setup](#database-setup)
-6. [Database Schema](#database-schema)
-7. [Email Scheduler](#email-scheduler)
-8. [Running the Scheduler](#running-the-scheduler)
-9. [Troubleshooting](#troubleshooting)
-10. [Security Considerations](#security-considerations)
+2. [Screenshots and Video Demo](#screenshots-and-video-demo)
+3. [Architecture](#architecture)
+4. [Key Components](#key-components)
+5. [Gmail API Integration](#gmail-api-integration)
+6. [Database Setup](#database-setup)
+7. [Database Schema](#database-schema)
+8. [Email Scheduler](#email-scheduler)
+9. [Running the Scheduler](#running-the-scheduler)
+10. [Troubleshooting](#troubleshooting)
+11. [Security Considerations](#security-considerations)
 
 ## Project Overview
 
@@ -26,6 +27,30 @@ BidVault is a Next.js application that integrates with Gmail to fetch, process, 
 - **Attachment Handling**: Processing and storing email attachments in Google Drive
 - **Email Dashboard**: User-friendly interface for viewing and managing emails
 - **Timestamp-Based Synchronization**: Efficient email fetching based on last sync time
+
+## Screenshots and Video Demo
+
+### Home page
+![Home page](https://github.com/user-attachments/assets/7199713c-47ce-4887-9b2c-f43dbf926c22)
+*The main dashboard showing the email list and statistics.*
+
+### Dashboard View
+![Dashboard View](https://github.com/user-attachments/assets/39e6b222-a676-4ce9-8bde-db128ac0b1e4)
+*Detailed view of an email with attachments and formatting preserved.*
+
+### Attachments and CC Recipients
+![Attachments and CC Recipients](https://github.com/user-attachments/assets/719850e9-47f1-4a2c-bcd7-2cf052aac17b)
+*Attachments(redirect link to google drive document) and CC Recipients.*
+
+### Thread of mail preserved
+![Thread of mail preserved](https://github.com/user-attachments/assets/dcded805-375c-46e0-8748-07c4d264cbcc)
+*Thread of mail preserved.*
+
+### Video Demo
+
+Watch a complete demonstration of the BidVault email processing system:
+
+[▶️ BidVault Email System Demo](https://drive.google.com/file/d/1Cc30Cv2TOAMsIIpQYSNKQOX6ppRtbP0j/view?usp=drive_link)
 
 ## Architecture
 
@@ -341,7 +366,6 @@ pm2 stop email-scheduler
    - Use strong passwords for database access
    - Enable SSL for database connections
    - Regularly backup your database
-
 ---
 
 This documentation provides a comprehensive overview of the email processing system in BidVault. For more detailed information about specific components, refer to the code comments and docstrings in the respective files.
