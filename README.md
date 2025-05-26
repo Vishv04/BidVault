@@ -1,6 +1,6 @@
 # BidVault Email Processing System
 
-This document provides detailed information about the email processing system in BidVault, including the Gmail API integration, scheduling mechanism, and deployment options.
+This document provides detailed information about the email processing system in BidVault, including the Gmail API integration, scheduling mechanism, and local setup.
 
 ## Table of Contents
 
@@ -8,9 +8,9 @@ This document provides detailed information about the email processing system in
 2. [Architecture](#architecture)
 3. [Key Components](#key-components)
 4. [Gmail API Integration](#gmail-api-integration)
-5. [Database Schema](#database-schema)
-6. [Email Scheduler](#email-scheduler)
-7. [Deployment Options](#deployment-options)
+5. [Database Setup](#database-setup)
+6. [Database Schema](#database-schema)
+7. [Email Scheduler](#email-scheduler)
 8. [Running the Scheduler](#running-the-scheduler)
 9. [Troubleshooting](#troubleshooting)
 10. [Security Considerations](#security-considerations)
@@ -156,7 +156,7 @@ model Attachment {
 
 ## Email Scheduler
 
-The email scheduler is a critical component that runs as a background process to periodically fetch new emails.
+The email scheduler is a critical component that runs as a background process to periodically(every 5 minutes) fetch new emails.
 
 ### Key Files
 
@@ -180,112 +180,125 @@ The email scheduler is a critical component that runs as a background process to
 - **scheduleForAllUsers(schedule)**: Schedule email fetching for all users with valid OAuth tokens
 - **processEmails(userId)**: Process emails for a specific user
 
-## Deployment Options
+## Database Setup
 
-The email scheduler can be deployed in several ways:
+### Local PostgreSQL Setup
 
-### 1. Local Development
+1. **Install PostgreSQL**:
+   ```bash
+   # For Ubuntu/Debian
+   sudo apt update
+   sudo apt install postgresql postgresql-contrib
+   
+   # For macOS with Homebrew
+   brew install postgresql
+   ```
 
-Run the scheduler locally during development:
+2. **Start PostgreSQL Service**:
+   ```bash
+   # For Ubuntu/Debian
+   sudo service postgresql start
+   
+   # For macOS
+   brew services start postgresql
+   ```
 
-```bash
-node src/scripts/scheduleEmailFetch.js [userId] [cronSchedule]
-```
+3. **Create a Database User and Database**:
+   ```bash
+   # Access PostgreSQL command line
+   sudo -u postgres psql
+   
+   # Inside PostgreSQL shell, create a user
+   CREATE USER bidvault_user WITH PASSWORD 'your_password';
+   
+   # Create the database
+   CREATE DATABASE bid_vault;
+   
+   # Grant privileges
+   GRANT ALL PRIVILEGES ON DATABASE bid_vault TO bidvault_user;
+   
+   # Exit PostgreSQL shell
+   \q
+   ```
 
-### 2. Docker Container
+4. **Configure Environment Variables**:
+   Update your `.env` file with the PostgreSQL connection string:
+   ```
+   DATABASE_URL="postgresql://bidvault_user:your_password@localhost:5432/bid_vault?schema=public"
+   ```
 
-Use the provided Dockerfile.scheduler to build and run a containerized version:
-
-```bash
-# Build the image
-docker build -t email-scheduler -f Dockerfile.scheduler .
-
-# Run the container
-docker run -p 8080:8080 --env-file .env email-scheduler
-```
-
-### 3. Google Cloud Run
-
-Deploy as a serverless container on Google Cloud Run:
-
-```bash
-# Build and push the image
-gcloud builds submit --tag gcr.io/PROJECT_ID/email-scheduler
-
-# Deploy to Cloud Run
-gcloud run deploy email-scheduler \
-  --image gcr.io/PROJECT_ID/email-scheduler \
-  --platform managed \
-  --region REGION \
-  --allow-unauthenticated \
-  --memory 512Mi \
-  --min-instances 1
-```
+5. **Run Prisma Migrations**:
+   ```bash
+   # Generate Prisma client
+   npx prisma generate
+   
+   # Run migrations
+   npx prisma migrate dev --name init
+   ```
 
 ## Running the Scheduler
 
-### Local Development
+The email scheduler is run as a Node.js script that can be executed from the command line. Here are the commands to run the scheduler with different configurations:
+
+### Basic Usage
 
 ```bash
-# Run for all users with default schedule (every minute)
+# Run the scheduler for all users with the default schedule (every minute)
 node src/scripts/scheduleEmailFetch.js
-
-# Run for a specific user
-node src/scripts/scheduleEmailFetch.js user123
-
-# Run with a custom schedule (every 30 minutes)
-node src/scripts/scheduleEmailFetch.js user123 "*/30 * * * *"
 ```
 
-### Docker Container
+This command will:
+1. Find all users with valid OAuth tokens in the database
+2. Set up a cron job for each user to fetch emails every minute
+3. Log the email fetching process to the console
+
+### Running for a Specific User
 
 ```bash
-# Build the Docker image
-docker build -t email-scheduler -f Dockerfile.scheduler .
-
-# Run the container with environment variables
-docker run -p 8080:8080 --env-file .env email-scheduler
-
-# Test the server
-curl http://localhost:8080
+# Run for a specific user (replace USER_ID with the actual user ID)
+node src/scripts/scheduleEmailFetch.js USER_ID
 ```
 
-### Google Cloud Run
+Example output:
+```
+Scheduling email fetch for user cmb4p8tlk0000oke1qpvoi3lk with schedule: */1 * * * *
+Scheduled email fetching for user cmb4p8tlk0000oke1qpvoi3lk
+[2025-05-26T06:39:00.010Z] Running scheduled email fetch for user cmb4p8tlk0000oke1qpvoi3lk
+Processing emails for user: cmb4p8tlk0000oke1qpvoi3lk
+...
+```
 
-1. **Set up Google Cloud Project**:
-   ```bash
-   gcloud init
-   gcloud projects create PROJECT_ID
-   gcloud config set project PROJECT_ID
-   gcloud services enable cloudbuild.googleapis.com run.googleapis.com
-   ```
+### Custom Schedule
 
-2. **Build and push the Docker image**:
-   ```bash
-   gcloud auth configure-docker
-   docker tag email-scheduler gcr.io/PROJECT_ID/email-scheduler:v1
-   docker push gcr.io/PROJECT_ID/email-scheduler:v1
-   ```
+```bash
+# Run with a custom cron schedule (e.g., every 30 minutes)
+node src/scripts/scheduleEmailFetch.js USER_ID "*/30 * * * *"
 
-3. **Deploy to Cloud Run**:
-   ```bash
-   gcloud run deploy email-scheduler \
-     --image gcr.io/PROJECT_ID/email-scheduler:v1 \
-     --platform managed \
-     --region asia-south1 \
-     --allow-unauthenticated \
-     --memory 512Mi \
-     --min-instances 1
-   ```
+# Run hourly
+node src/scripts/scheduleEmailFetch.js USER_ID "0 * * * *"
 
-4. **Set up Cloud Scheduler for regular invocation**:
-   ```bash
-   gcloud services enable cloudscheduler.googleapis.com
-   gcloud scheduler jobs create http email-scheduler-job \
-     --schedule="0 * * * *" \
-     --uri="CLOUD_RUN_URL/run" \
-     --http-method=GET
-   ```
+# Run daily at midnight
+node src/scripts/scheduleEmailFetch.js USER_ID "0 0 * * *"
+```
+
+### Running as a Background Process
+
+To run the scheduler as a background process that continues after you close the terminal:
+
+```bash
+# Using nohup
+nohup node src/scripts/scheduleEmailFetch.js > email_scheduler.log 2>&1 &
+
+# Using PM2 (recommended for production)
+npm install -g pm2
+pm2 start src/scripts/scheduleEmailFetch.js --name "email-scheduler"
+
+# View PM2 logs
+pm2 logs email-scheduler
+
+# Stop the PM2 process
+pm2 stop email-scheduler
+```
 
 ## Troubleshooting
 
@@ -302,10 +315,6 @@ curl http://localhost:8080
 3. **Gmail API Rate Limiting**:
    - Error: "Quota exceeded for quota metric 'Queries'"
    - Solution: Implement exponential backoff and retry logic
-
-4. **Missing Attachments**:
-   - Issue: Attachments not showing up in the dashboard
-   - Solution: Check Google Drive API permissions and quota
 
 ### Debugging
 
@@ -332,11 +341,6 @@ curl http://localhost:8080
    - Use strong passwords for database access
    - Enable SSL for database connections
    - Regularly backup your database
-
-5. **Cloud Run Security**:
-   - Consider adding authentication to your Cloud Run service
-   - Use service accounts with minimal permissions
-   - Set up proper IAM policies
 
 ---
 
